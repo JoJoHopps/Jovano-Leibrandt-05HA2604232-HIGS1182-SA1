@@ -1,31 +1,39 @@
 using UnityEngine;
+using System.Collections;
 
-// EnemyAI controls enemy drone behaviour using a simple state machine.
-// The enemy patrols near its spawn point until the player comes within
-// detection range, then switches to chasing the player directly.
+// EnemyAI controls an enemy drone using a simple state machine.
+// PATROL: wander near the spawn point.
+// CHASE: when the player enters detection range, hunt them down.
+// All balance values are exposed in the Inspector for easy testing.
 public class EnemyAI : MonoBehaviour
 {
-    // An enum defines a fixed set of named states - much cleaner than
-    // using strings or numbers to track behaviour
     private enum AIState { Patrol, Chase }
 
     [Header("Detection Settings")]
-    [SerializeField] private float detectionRange = 10f; // How close the player must be to be noticed
+    [SerializeField] private float detectionRange = 10f;
 
     [Header("Movement Settings")]
     [SerializeField] private float patrolSpeed = 2f;
     [SerializeField] private float chaseSpeed = 4f;
-    [SerializeField] private float patrolRadius = 8f; // How far from spawn point it will wander
+    [SerializeField] private float patrolRadius = 8f;
     [SerializeField] private float waypointReachedDistance = 0.5f;
+    [SerializeField] private float turnSpeed = 5f;
 
     [Header("Combat Settings")]
-    [SerializeField] private int maxHealth = 2; // Takes 2 shots to destroy
+    [SerializeField] private int maxHealth = 2;
+
+    [Header("Feedback Settings")]
+    [SerializeField] private Color hitFlashColor = Color.white;
+    [SerializeField] private float hitFlashDuration = 0.1f;
+    [SerializeField] private GameObject deathEffectPrefab; // Optional
 
     // ─────────────────────────────────────────────
     // PRIVATE VARIABLES
     // ─────────────────────────────────────────────
     private AIState currentState = AIState.Patrol;
     private Rigidbody rb;
+    private Renderer enemyRenderer;
+    private Color originalColor;
     private Transform player;
     private Vector3 spawnPosition;
     private Vector3 currentPatrolTarget;
@@ -38,11 +46,18 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
+        // Cache components once
         rb = GetComponent<Rigidbody>();
+        enemyRenderer = GetComponentInChildren<Renderer>();
+
+        if (enemyRenderer != null)
+        {
+            originalColor = enemyRenderer.material.color;
+        }
+
         spawnPosition = transform.position;
         currentHealth = maxHealth;
 
-        // Find the player in the scene using the "Player" tag
         GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
         if (playerObject != null)
         {
@@ -56,29 +71,36 @@ public class EnemyAI : MonoBehaviour
 
     private void Update()
     {
-        if (player == null) return;
+        if (player == null || !IsGameActive()) return;
         UpdateState();
     }
 
     private void FixedUpdate()
     {
-        if (player == null) return;
+        if (player == null || !IsGameActive()) return;
 
         if (currentState == AIState.Patrol)
         {
             Patrol();
         }
-        else if (currentState == AIState.Chase)
+        else
         {
             Chase();
         }
     }
 
     // ─────────────────────────────────────────────
-    // CUSTOM METHODS
+    // AI LOGIC
     // ─────────────────────────────────────────────
 
-    // Checks the distance to the player and switches states accordingly
+    // Enemies freeze once the game is over or won
+    private bool IsGameActive()
+    {
+        return GameManager.Instance == null ||
+               GameManager.Instance.CurrentState == GameManager.GameState.Playing;
+    }
+
+    // Switches between Patrol and Chase based on distance to the player
     private void UpdateState()
     {
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
@@ -96,79 +118,68 @@ public class EnemyAI : MonoBehaviour
                 }
             }
         }
-        else
+        else if (currentState != AIState.Patrol)
         {
-            if (currentState != AIState.Patrol)
-            {
-                currentState = AIState.Patrol;
-                hasSpottedPlayer = false;
-                Debug.Log($"EnemyAI: {gameObject.name} lost the player, returning to patrol.");
-                PickNewPatrolPoint();
-            }
+            currentState = AIState.Patrol;
+            hasSpottedPlayer = false;
+            Debug.Log($"EnemyAI: {gameObject.name} lost the player, returning to patrol.");
+            PickNewPatrolPoint();
         }
     }
 
-    // Moves the enemy toward a random point near its spawn location
     private void Patrol()
     {
         MoveTowards(currentPatrolTarget, patrolSpeed);
 
-        float distanceToTarget = Vector3.Distance(transform.position, currentPatrolTarget);
-        if (distanceToTarget <= waypointReachedDistance)
+        if (Vector3.Distance(transform.position, currentPatrolTarget) <= waypointReachedDistance)
         {
             PickNewPatrolPoint();
         }
     }
 
-    // Moves the enemy directly toward the player's current position
+    // Chase speed scales with the wave difficulty multiplier from GameManager
     private void Chase()
     {
-        // Speed scales with the game's difficulty multiplier - enemies get faster over time
         float speed = chaseSpeed * GetDifficultyMultiplier();
         MoveTowards(player.position, speed);
     }
 
-    // Shared movement logic used by BOTH Patrol and Chase - avoids duplicate code
+    // Shared movement used by BOTH Patrol and Chase
     private void MoveTowards(Vector3 targetPosition, float speed)
     {
         Vector3 direction = targetPosition - transform.position;
         direction.y = 0f;
         direction = direction.normalized;
 
-        Vector3 newPosition = rb.position + direction * speed * Time.fixedDeltaTime;
-        rb.MovePosition(newPosition);
+        rb.MovePosition(rb.position + direction * speed * Time.fixedDeltaTime);
 
-        // Rotate to face the direction of movement
         if (direction.sqrMagnitude > 0.01f)
         {
             Quaternion targetRotation = Quaternion.LookRotation(direction);
-            rb.MoveRotation(Quaternion.Slerp(rb.rotation, targetRotation, 5f * Time.fixedDeltaTime));
+            rb.MoveRotation(Quaternion.Slerp(rb.rotation, targetRotation, turnSpeed * Time.fixedDeltaTime));
         }
     }
 
-    // Picks a new random point within patrolRadius of the spawn position
     private void PickNewPatrolPoint()
     {
-        // Random.insideUnitCircle gives a random 2D point inside a circle of radius 1
         Vector2 randomCircle = Random.insideUnitCircle * patrolRadius;
         currentPatrolTarget = spawnPosition + new Vector3(randomCircle.x, 0f, randomCircle.y);
     }
 
-    // Safely retrieves the current difficulty multiplier from GameManager
     private float GetDifficultyMultiplier()
     {
         if (GameManager.Instance != null)
         {
             return GameManager.Instance.DifficultyMultiplier;
         }
-        return 1f; // Fallback if GameManager isn't found for some reason
+        return 1f;
     }
 
     // ─────────────────────────────────────────────
     // COMBAT
     // ─────────────────────────────────────────────
 
-    // Called by PlayerController when a raycast hits this enemy
+    // Called by Projectile when a laser hits this enemy
     public void TakeDamage(int amount)
     {
         currentHealth -= amount;
@@ -178,33 +189,35 @@ public class EnemyAI : MonoBehaviour
         {
             Die();
         }
+        else
+        {
+            StartCoroutine(FlashOnHit());
+        }
+    }
+
+    // Briefly changes colour so the player can SEE the hit landed
+    private IEnumerator FlashOnHit()
+    {
+        if (enemyRenderer == null) yield break;
+
+        enemyRenderer.material.color = hitFlashColor;
+        yield return new WaitForSeconds(hitFlashDuration);
+        enemyRenderer.material.color = originalColor;
     }
 
     private void Die()
     {
         Debug.Log($"EnemyAI: {gameObject.name} destroyed.");
+
+        if (deathEffectPrefab != null)
+        {
+            Instantiate(deathEffectPrefab, transform.position, Quaternion.identity);
+        }
+
         Destroy(gameObject);
     }
 
-    // ─────────────────────────────────────────────
-    // COLLISION
-    // ─────────────────────────────────────────────
-
-    private void OnCollisionEnter(Collision collision)
-    {
-        if (collision.gameObject.CompareTag("Player"))
-        {
-            Debug.Log("EnemyAI: Collided with player!");
-
-            PlayerController playerController = collision.gameObject.GetComponent<PlayerController>();
-            if (playerController != null)
-            {
-                playerController.KillPlayer();
-            }
-        }
-    }
-    // Unity automatically calls this whenever the enemy is destroyed,
-    // whether from being shot or any other reason. Keeps the spawner's count accurate.
+    // Keeps the spawner's active enemy count accurate
     private void OnDestroy()
     {
         EnemySpawner spawner = FindFirstObjectByType<EnemySpawner>();

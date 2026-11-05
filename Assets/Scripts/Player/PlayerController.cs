@@ -1,42 +1,63 @@
-using UnityEngine;
-using System.Collections;
+﻿using UnityEngine;
 
-// PlayerController handles all player input, movement, and shooting.
+// PlayerController handles player input, movement, shooting (prefab projectiles),
+// taking hits, and talking to the animation, audio, and camera-shake systems.
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement Settings")]
     [SerializeField] private float moveSpeed = 8f;
 
     [Header("Shooting Settings")]
-    [SerializeField] private float shootRange = 50f;
-    [SerializeField] private float fireRate = 0.3f;
-    [SerializeField] private LayerMask shootableLayers; // Covers BOTH Asteroid and Enemy layers
-    [SerializeField] private int damagePerShot = 1;
-    [SerializeField] private float laserDuration = 0.05f;
-    [SerializeField] private Color laserColor = Color.green;
-    [SerializeField] private GameObject impactEffectPrefab; // Visual effect spawned where the raycast hits
+    [SerializeField] private GameObject projectilePrefab;
+    [SerializeField] private float fireRate = 0.3f;              // Seconds between shots
+    [SerializeField] private float projectileSpawnOffset = 1f;   // How far in front of the player the laser appears
+
+    [Header("Hit Feedback")]
+    [SerializeField] private float deathShakeDuration = 0.5f;
+    [SerializeField] private float deathShakeMagnitude = 0.5f;
+    [SerializeField] private float shieldShakeDuration = 0.15f;
+    [SerializeField] private float shieldShakeMagnitude = 0.2f;
 
     [Header("References")]
     [SerializeField] private Camera playerCamera;
+    [SerializeField] private CameraShake cameraShake;
 
+    // ─────────────────────────────────────────────
+    // PRIVATE VARIABLES
+    // ─────────────────────────────────────────────
     private Rigidbody rb;
+    private AnimationController animationController;
     private float nextFireTime = 0f;
     private bool isAlive = true;
+    private bool wasMoving = false;
     private float horizontalInput;
     private float verticalInput;
-    private LineRenderer laserLine;
-    private Vector3 mouseAimDirection;
+    private Vector3 mouseAimDirection = Vector3.forward; // Mouse decides aim; WASD decides movement
+
+    // ─────────────────────────────────────────────
+    // UNITY LIFECYCLE
+    // ─────────────────────────────────────────────
 
     private void Start()
     {
+        // Cache all components once so we never search for them again
         rb = GetComponent<Rigidbody>();
+        animationController = GetComponent<AnimationController>();
 
         if (playerCamera == null)
         {
             playerCamera = Camera.main;
         }
 
-        SetupLaserLine();
+        if (cameraShake == null && playerCamera != null)
+        {
+            cameraShake = playerCamera.GetComponent<CameraShake>();
+        }
+
+        if (animationController == null)
+        {
+            Debug.LogWarning("PlayerController: No AnimationController found on Player.");
+        }
 
         Debug.Log("PlayerController: Player initialized.");
     }
@@ -56,23 +77,31 @@ public class PlayerController : MonoBehaviour
         ApplyMovement();
     }
 
-    private void SetupLaserLine()
-    {
-        laserLine = gameObject.AddComponent<LineRenderer>();
-        laserLine.positionCount = 2;
-        laserLine.startWidth = 0.05f;
-        laserLine.endWidth = 0.05f;
-        laserLine.material = new Material(Shader.Find("Sprites/Default"));
-        laserLine.startColor = laserColor;
-        laserLine.endColor = laserColor;
-        laserLine.useWorldSpace = true;
-        laserLine.enabled = false;
-    }
+    // ─────────────────────────────────────────────
+    // MOVEMENT
+    // ─────────────────────────────────────────────
 
+    // Reads WASD / arrow keys and updates the idle/thrust animation
     private void HandleInput()
     {
         horizontalInput = Input.GetAxisRaw("Horizontal");
         verticalInput = Input.GetAxisRaw("Vertical");
+
+        bool isMoving = Mathf.Abs(horizontalInput) > 0.01f || Mathf.Abs(verticalInput) > 0.01f;
+        UpdateMovementAnimation(isMoving);
+    }
+
+    // Only tells the Animator when the moving/idle state actually CHANGES
+    private void UpdateMovementAnimation(bool isMoving)
+    {
+        if (isMoving == wasMoving) return;
+
+        wasMoving = isMoving;
+
+        if (animationController != null)
+        {
+            animationController.SetMoving(isMoving);
+        }
     }
 
     private void ApplyMovement()
@@ -82,6 +111,11 @@ public class PlayerController : MonoBehaviour
         rb.MovePosition(newPosition);
     }
 
+    // ─────────────────────────────────────────────
+    // AIMING & SHOOTING
+    // ─────────────────────────────────────────────
+
+    // Works out which direction the mouse is pointing in the world (used for shooting only)
     private void UpdateMouseAimDirection()
     {
         Ray mouseRay = playerCamera.ScreenPointToRay(Input.mousePosition);
@@ -104,104 +138,134 @@ public class PlayerController : MonoBehaviour
     {
         if (Input.GetMouseButton(0) && Time.time >= nextFireTime)
         {
-            nextFireTime = Time.time + fireRate;
-            FireRaycast();
+            nextFireTime = Time.time + GetCurrentFireInterval();
+            FireProjectile();
         }
     }
 
-    private void FireRaycast()
+    // Returns the time between shots, shortened if Rapid Fire is active
+    private float GetCurrentFireInterval()
     {
-        Vector3 rayOrigin = transform.position + Vector3.up * 0.5f;
-        Vector3 rayDirection = mouseAimDirection;
-        Vector3 laserEndPoint = rayOrigin + rayDirection * shootRange;
+        float multiplier = 1f;
 
-        Debug.Log("PlayerController: Shot fired!");
-        Debug.DrawRay(rayOrigin, rayDirection * shootRange, Color.red, 1f);
-
-        // Raycast now checks BOTH Asteroid and Enemy layers via shootableLayers
-        if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit, shootRange, shootableLayers))
+        if (PowerUpManager.Instance != null)
         {
-            Debug.Log($"PlayerController: Raycast hit {hit.collider.gameObject.name}");
-            laserEndPoint = hit.point;
-            HandleHit(hit);
-            SpawnImpactEffect(hit.point);
-        }
-        else
-        {
-            Debug.Log("PlayerController: Raycast hit nothing.");
+            multiplier = PowerUpManager.Instance.FireRateMultiplier;
         }
 
-        ShowLaser(rayOrigin, laserEndPoint);
+        return fireRate * multiplier;
     }
 
-    // Decides what happens based on WHAT was hit - distinguishes Asteroid from Enemy using tags
-    private void HandleHit(RaycastHit hit)
+    // Spawns a laser projectile prefab in front of the player, facing the aim direction
+    private void FireProjectile()
     {
-        if (hit.collider.CompareTag("Asteroid"))
+        if (projectilePrefab == null)
         {
-            Debug.Log($"PlayerController: Asteroid destroyed - {hit.collider.gameObject.name}");
-            Destroy(hit.collider.gameObject);
+            Debug.LogWarning("PlayerController: No projectile prefab assigned!");
+            return;
         }
-        else if (hit.collider.CompareTag("Enemy"))
-        {
-            Debug.Log($"PlayerController: Enemy hit - {hit.collider.gameObject.name}");
 
-            EnemyAI enemy = hit.collider.GetComponent<EnemyAI>();
-            if (enemy != null)
-            {
-                enemy.TakeDamage(damagePerShot);
-            }
-        }
-        else
-        {
-            Debug.Log($"PlayerController: Hit object has no combat logic - tag: {hit.collider.tag}");
-        }
-    }
+        Vector3 spawnPosition = transform.position + mouseAimDirection * projectileSpawnOffset;
+        Quaternion spawnRotation = Quaternion.LookRotation(mouseAimDirection);
 
-    // Spawns a short-lived visual effect at the point the raycast hit something
-    private void SpawnImpactEffect(Vector3 position)
-    {
-        if (impactEffectPrefab != null)
+        Instantiate(projectilePrefab, spawnPosition, spawnRotation);
+
+        Debug.Log("PlayerController: Laser fired!");
+
+        AudioManager.Play(AudioManager.SoundType.Shoot);
+
+        if (animationController != null)
         {
-            Instantiate(impactEffectPrefab, position, Quaternion.identity);
+            animationController.PlayShoot();
         }
     }
 
-    private void ShowLaser(Vector3 startPoint, Vector3 endPoint)
-    {
-        laserLine.SetPosition(0, startPoint);
-        laserLine.SetPosition(1, endPoint);
-        laserLine.enabled = true;
-        StartCoroutine(HideLaserAfterDelay());
-    }
+    // ─────────────────────────────────────────────
+    // TAKING DAMAGE
+    // ─────────────────────────────────────────────
 
-    private IEnumerator HideLaserAfterDelay()
-    {
-        yield return new WaitForSeconds(laserDuration);
-        laserLine.enabled = false;
-    }
-
-    public void KillPlayer()
+    // Called whenever an asteroid or enemy touches the player.
+    // 'attacker' is the object that hit us, so a shield can destroy it.
+    public void TakeHit(GameObject attacker)
     {
         if (!isAlive) return;
 
+        // Ignore hits once the game is already over or won
+        if (GameManager.Instance != null &&
+            GameManager.Instance.CurrentState != GameManager.GameState.Playing)
+        {
+            return;
+        }
+
+        if (PowerUpManager.Instance != null && PowerUpManager.Instance.IsShieldActive)
+        {
+            AbsorbHitWithShield(attacker);
+        }
+        else
+        {
+            Die();
+        }
+    }
+
+    // The shield blocks the hit, is used up, and destroys whatever hit us
+    private void AbsorbHitWithShield(GameObject attacker)
+    {
+        Debug.Log($"PlayerController: Shield absorbed a hit from {attacker.name}!");
+
+        PowerUpManager.Instance.ConsumeShield();
+        Destroy(attacker);
+
+        AudioManager.Play(AudioManager.SoundType.PlayerHit);
+        ShakeCamera(shieldShakeDuration, shieldShakeMagnitude);
+    }
+
+    private void Die()
+    {
         isAlive = false;
         Debug.Log("PlayerController: Player has been killed!");
+
+        if (animationController != null)
+        {
+            animationController.PlayHit();
+        }
+
+        AudioManager.Play(AudioManager.SoundType.PlayerHit);
+        ShakeCamera(deathShakeDuration, deathShakeMagnitude);
 
         GameManager.Instance.TriggerGameOver();
     }
 
+    // Shared helper so shake calls are null-safe in one place
+    private void ShakeCamera(float duration, float magnitude)
+    {
+        if (cameraShake != null)
+        {
+            cameraShake.Shake(duration, magnitude);
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // COLLISION DETECTION
+    // ─────────────────────────────────────────────
+
+    // All hazard collisions are handled here in ONE place
+    // (Asteroid.cs and EnemyAI.cs no longer duplicate this logic)
     private void OnCollisionEnter(Collision collision)
+    {
+        HandleHazardCollision(collision);
+    }
+
+    private void HandleHazardCollision(Collision collision)
     {
         if (collision.gameObject.CompareTag("Asteroid"))
         {
             Debug.Log("PlayerController: Hit by asteroid!");
-            KillPlayer();
+            TakeHit(collision.gameObject);
         }
         else if (collision.gameObject.CompareTag("Enemy"))
         {
             Debug.Log("PlayerController: Hit by enemy!");
-            KillPlayer();
+            TakeHit(collision.gameObject);
         }
     }
 }

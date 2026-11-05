@@ -43,7 +43,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 9076673790980356004}
-  m_Mesh: {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
+  m_Mesh: {fileID: 4300000, guid: 2e70299eae7fff74a9cfef859bc18b5a, type: 3}
 --- !u!23 &3504500292175739449
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -156,4 +156,8 @@ MonoBehaviour:
   chaseSpeed: 4
   patrolRadius: 8
   waypointReachedDistance: 0.5
+  turnSpeed: 5
   maxHealth: 2
+  hitFlashColor: {r: 1, g: 1, b: 1, a: 1}
+  hitFlashDuration: 0.1
+  deathEffectPrefab: {fileID: 0}

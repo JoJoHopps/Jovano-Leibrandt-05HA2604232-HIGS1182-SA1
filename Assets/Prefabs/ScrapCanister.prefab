@@ -149,3 +149,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 22ffe803a43dd4f429afee966cb9faf4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  pickupEffectPrefab: {fileID: 6751336779720966476, guid: 9a8dc57f8974d0a49beaf305ab39ba2e, type: 3}
+  spinSpeed: 60

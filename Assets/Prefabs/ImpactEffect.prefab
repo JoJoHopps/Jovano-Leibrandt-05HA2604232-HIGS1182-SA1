@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 6405998179893953260}
   - component: {fileID: 2992744542939000594}
   - component: {fileID: 6070342999034298114}
-  - component: {fileID: 4737405447266383037}
+  - component: {fileID: 2892728441959653725}
   m_Layer: 0
   m_Name: ImpactEffect
   m_TagString: Untagged
@@ -87,7 +87,7 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!114 &4737405447266383037
+--- !u!114 &2892728441959653725
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -96,7 +96,8 @@ MonoBehaviour:
   m_GameObject: {fileID: 6751336779720966476}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b597cd731600c35459526cc862a5b5fe, type: 3}
+  m_Script: {fileID: 11500000, guid: b26543228210af943ba23c7097b854e2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  lifetime: 0.2
+  lifetime: 0.25
+  growMultiplier: 2.5

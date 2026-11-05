@@ -30,10 +30,13 @@ public static class SaveManager
         return savedScore;
     }
 
-    // Utility method in case you want to reset progress during testing
+    // Wipes the saved high score so the next load returns 0.
+    // Called by the Main Menu "Reset High Score" button (HighScoreResetButton).
     public static void ResetHighScore()
     {
         PlayerPrefs.DeleteKey(HighScoreKey);
-        Debug.Log("SaveManager: High score reset.");
+        PlayerPrefs.Save(); // Write the deletion to disk immediately, like SaveHighScore does
+
+        Debug.Log("SaveManager: High score reset to 0.");
     }
 }

@@ -1,18 +1,82 @@
 using UnityEngine;
 
-// Projectile.cs is attached to a small "ImpactEffect" prefab.
-// It represents the visual "hit" flash created at the point our raycast
-// lands on a target. Our shooting is raycast-based (instant hit) rather
-// than a physically moving bullet, so this script's job is purely to
-// manage the lifespan of the visual feedback effect.
+// Projectile is attached to the laser bolt PREFAB that the player fires.
+// It flies forward at a constant speed and applies damage to whatever it hits:
+//   - Asteroids are destroyed
+//   - Enemy drones take damage
+// Collisions are detected with OnTriggerEnter and identified by tag.
 public class Projectile : MonoBehaviour
 {
-    [SerializeField] private float lifetime = 0.2f; // How long the effect stays visible
+    [Header("Projectile Settings")]
+    [SerializeField] private float speed = 30f;
+    [SerializeField] private float lifetime = 2f;   // Auto-destroy if it hits nothing
+    [SerializeField] private int damage = 1;
+
+    [Header("Effects")]
+    [SerializeField] private GameObject impactEffectPrefab;
+
+    private Rigidbody rb;
+
+    private void Awake()
+    {
+        rb = GetComponent<Rigidbody>();
+    }
 
     private void Start()
     {
-        // Destroy automatically removes this GameObject after 'lifetime' seconds
+        Launch();
         Destroy(gameObject, lifetime);
-        Debug.Log("Projectile: Impact effect spawned.");
+    }
+
+    // Gives the projectile its velocity in the direction it is facing
+    private void Launch()
+    {
+        if (rb == null)
+        {
+            Debug.LogError("Projectile: Missing Rigidbody on projectile prefab!");
+            return;
+        }
+
+        rb.useGravity = false;
+        rb.linearVelocity = transform.forward * speed;
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        // Only asteroids and enemies are valid targets - ignore everything else
+        // (the player, scrap, power-ups all pass straight through)
+        if (other.CompareTag("Asteroid") || other.CompareTag("Enemy"))
+        {
+            ApplyDamage(other);
+            SpawnImpactEffect();
+            Destroy(gameObject);
+        }
+    }
+
+    // Decides what happens based on what was hit
+    private void ApplyDamage(Collider target)
+    {
+        if (target.CompareTag("Asteroid"))
+        {
+            Debug.Log($"Projectile: Asteroid destroyed - {target.gameObject.name}");
+            Destroy(target.gameObject);
+        }
+        else if (target.CompareTag("Enemy"))
+        {
+            EnemyAI enemy = target.GetComponent<EnemyAI>();
+            if (enemy != null)
+            {
+                Debug.Log($"Projectile: Hit enemy {target.gameObject.name} for {damage} damage");
+                enemy.TakeDamage(damage);
+            }
+        }
+    }
+
+    private void SpawnImpactEffect()
+    {
+        if (impactEffectPrefab != null)
+        {
+            Instantiate(impactEffectPrefab, transform.position, Quaternion.identity);
+        }
     }
 }

@@ -1,53 +1,52 @@
 using UnityEngine;
 
 // CameraFollow makes the camera smoothly follow the player from above.
-// Attach this to the Camera GameObject.
+// Attach this to the Main Camera. It works together with CameraShake
+// (if present on the same object) by adding the shake offset on top.
 public class CameraFollow : MonoBehaviour
 {
-    // ─────────────────────────────────────────────
-    // INSPECTOR FIELDS
-    // ─────────────────────────────────────────────
     [Header("Target")]
-    [SerializeField] private Transform target; // The player's Transform
+    [SerializeField] private Transform target;
 
     [Header("Follow Settings")]
-    [SerializeField] private Vector3 offset = new Vector3(0f, 15f, -10f); // Camera offset from player
-    [SerializeField] private float smoothSpeed = 8f; // How smoothly the camera follows
+    [SerializeField] private Vector3 offset = new Vector3(0f, 15f, -10f);
+    [SerializeField] private float smoothSpeed = 8f;
 
-    // ─────────────────────────────────────────────
-    // UNITY LIFECYCLE
-    // ─────────────────────────────────────────────
+    private CameraShake cameraShake;          // Optional shake component
+    private Vector3 smoothedBasePosition;     // Follow position WITHOUT the shake applied
 
-    // LateUpdate runs AFTER all Update() methods
-    // This ensures the player has moved before the camera updates
+    private void Awake()
+    {
+        // Cache the optional CameraShake component (may be null, which is fine)
+        cameraShake = GetComponent<CameraShake>();
+    }
+
+    private void Start()
+    {
+        smoothedBasePosition = transform.position;
+    }
+
     private void LateUpdate()
     {
         if (target == null) return;
-
         FollowTarget();
     }
 
-    // ─────────────────────────────────────────────
-    // CUSTOM METHODS
-    // ─────────────────────────────────────────────
-
-    // Smoothly moves the camera to follow the target
     private void FollowTarget()
     {
-        // Desired position = player position + our offset
         Vector3 desiredPosition = target.position + offset;
 
-        // Lerp = Linear Interpolation – moves smoothly from current to desired
-        // Higher smoothSpeed = snappier follow
-        Vector3 smoothedPosition = Vector3.Lerp(
-            transform.position,
+        // We smooth the BASE position separately so the shake offset
+        // doesn't get fed back into the smoothing and accumulate
+        smoothedBasePosition = Vector3.Lerp(
+            smoothedBasePosition,
             desiredPosition,
             smoothSpeed * Time.deltaTime
         );
 
-        transform.position = smoothedPosition;
+        Vector3 shakeOffset = (cameraShake != null) ? cameraShake.ShakeOffset : Vector3.zero;
 
-        // Always look at the player
+        transform.position = smoothedBasePosition + shakeOffset;
         transform.LookAt(target);
     }
 }

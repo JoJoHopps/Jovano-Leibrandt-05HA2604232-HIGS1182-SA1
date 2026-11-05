@@ -1,7 +1,8 @@
 using UnityEngine;
 
-// Asteroid.cs handles asteroid boundary wrapping and collision with the player.
-// It also notifies the AsteroidSpawner when it is destroyed.
+// Asteroid keeps asteroids inside the play area by wrapping them to the
+// opposite side, and tells the spawner when one is destroyed.
+// Player collision is handled in PlayerController.
 public class Asteroid : MonoBehaviour
 {
     [Header("Boundary Settings")]
@@ -13,7 +14,6 @@ public class Asteroid : MonoBehaviour
         WrapPosition();
     }
 
-    // Wraps the asteroid to the opposite side of the play area when it goes out of bounds
     private void WrapPosition()
     {
         Vector3 pos = transform.position;
@@ -27,23 +27,6 @@ public class Asteroid : MonoBehaviour
         transform.position = pos;
     }
 
-    private void OnCollisionEnter(Collision collision)
-    {
-        if (collision.gameObject.CompareTag("Player"))
-        {
-            Debug.Log("Asteroid: Collided with Player!");
-
-            PlayerController player = collision.gameObject.GetComponent<PlayerController>();
-            if (player != null)
-            {
-                player.KillPlayer();
-            }
-        }
-    }
-
-    // Unity automatically calls OnDestroy whenever this GameObject is destroyed,
-    // whether from being shot or anything else. We use this to tell the spawner
-    // to reduce its active asteroid count.
     private void OnDestroy()
     {
         if (AsteroidSpawner.Instance != null)
